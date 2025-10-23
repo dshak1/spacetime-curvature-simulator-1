@@ -1,0 +1,50 @@
+# Build artifacts
+gravity_sim
+gravity_sim_3Dgrid
+3D_test
+*.o
+*.out
+*.exe
+
+# Debug info
+*.dSYM/
+
+# Windows DLL (not needed for macOS)
+*.dll
+
+# VS Code settings that may be user-specific
+.vscode/settings.json
+.vscode/launch.json
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# IDE files
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp

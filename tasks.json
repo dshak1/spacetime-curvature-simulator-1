@@ -1,0 +1,95 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build-gravity-sim",
+            "type": "shell",
+            "command": "make",
+            "args": ["gravity_sim"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "build-3dgrid",
+            "type": "shell",
+            "command": "make",
+            "args": ["gravity_sim_3Dgrid"],
+            "group": "build",
+            "problemMatcher": ["$gcc"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "build-3dtest",
+            "type": "shell",
+            "command": "make",
+            "args": ["3D_test"],
+            "group": "build",
+            "problemMatcher": ["$gcc"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "build-all",
+            "type": "shell",
+            "command": "make",
+            "args": ["all"],
+            "group": "build",
+            "problemMatcher": ["$gcc"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "run-gravity-sim",
+            "type": "shell",
+            "command": "make",
+            "args": ["run"],
+            "group": "test",
+            "dependsOn": "build-gravity-sim",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "run-3dgrid",
+            "type": "shell",
+            "command": "make",
+            "args": ["run-3dgrid"],
+            "group": "test",
+            "dependsOn": "build-3dgrid",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "run-3dtest",
+            "type": "shell",
+            "command": "make",
+            "args": ["run-3dtest"],
+            "group": "test",
+            "dependsOn": "build-3dtest",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "make",
+            "args": ["clean"],
+            "group": "build",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        }
+    ]
+}

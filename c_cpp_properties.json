@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "macOS",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/opt/homebrew/include",
+                "/opt/homebrew/opt/glfw/include",
+                "/opt/homebrew/opt/glew/include",
+                "/opt/homebrew/opt/glm/include"
+            ],
+            "defines": [
+                "_DEBUG",
+                "GL_SILENCE_DEPRECATION"
+            ],
+            "compilerPath": "/usr/bin/clang++",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "macos-clang-arm64"
+        }
+    ],
+    "version": 4
+} 
