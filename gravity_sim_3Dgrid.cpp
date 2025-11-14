@@ -27,7 +27,7 @@ void main() {
 
 bool running = true;
 bool pause = false;
-float simulationSpeed = 1.0f; // Default simulation speed multiplier
+float simulationSpeed = 50.0f; // Default simulation speed multiplier (increased for visible motion)
 glm::vec3 cameraPos   = glm::vec3(0.0f, 0.0f,  1.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
 glm::vec3 cameraUp    = glm::vec3(0.0f, 1.0f,  0.0f);
@@ -50,6 +50,7 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 glm::vec3 sphericalToCartesian(float r, float theta, float phi);
 void DrawGrid(GLuint shaderProgram, GLuint gridVAO, size_t vertexCount);
 
@@ -90,7 +91,7 @@ class Object {
             this->velocity = initVelocity;
             this->mass = mass;
             this->density = density;
-            this->radius = pow(((3 * this->mass/this->density)/(4 * 3.14159265359)), (1.0f/3.0f)) / 100000;
+            this->radius = pow(((3 * this->mass/this->density)/(4 * 3.14159265359)), (1.0f/3.0f)) / 1000;
             
             // Initialize trail vectors (but don't create any spheres yet)
             trailSpheres.clear();
@@ -138,12 +139,12 @@ class Object {
             float deltaTime = 1.0f / 60.0f; // Assume 60 FPS for stability
             
             // Apply velocity damping to prevent runaway acceleration
-            this->velocity[0] *= 0.999f; // 0.1% velocity damping per frame
-            this->velocity[1] *= 0.999f;
-            this->velocity[2] *= 0.999f;
+            this->velocity[0] *= 0.9999f; // Reduced damping for better motion
+            this->velocity[1] *= 0.9999f;
+            this->velocity[2] *= 0.9999f;
             
-            // Limit maximum velocity to prevent runaway
-            float maxVel = 100.0f;
+            // Limit maximum velocity to prevent runaway (increased to allow faster orbital motion)
+            float maxVel = 1000.0f;
             if (abs(this->velocity[0]) > maxVel) this->velocity[0] = (this->velocity[0] > 0) ? maxVel : -maxVel;
             if (abs(this->velocity[1]) > maxVel) this->velocity[1] = (this->velocity[1] > 0) ? maxVel : -maxVel;
             if (abs(this->velocity[2]) > maxVel) this->velocity[2] = (this->velocity[2] > 0) ? maxVel : -maxVel;
@@ -151,7 +152,7 @@ class Object {
             this->position[0] += this->velocity[0] * deltaTime * simulationSpeed;
             this->position[1] += this->velocity[1] * deltaTime * simulationSpeed;
             this->position[2] += this->velocity[2] * deltaTime * simulationSpeed;
-            this->radius = pow(((3 * this->mass/this->density)/(4 * 3.14159265359)), (1.0f/3.0f)) / 100000;
+            this->radius = pow(((3 * this->mass/this->density)/(4 * 3.14159265359)), (1.0f/3.0f)) / 1000;
             
             // Apply boundary constraints to keep objects within simulation bounds
             float boundary = 15000.0f; // Simulation boundary
@@ -200,15 +201,53 @@ class Object {
             this->velocity[1] += y * deltaTime * simulationSpeed;
             this->velocity[2] += z * deltaTime * simulationSpeed;
         }
-        float CheckCollision(const Object& other) {
+        bool CheckCollision(const Object& other, glm::vec3& collisionNormal, float& overlap) {
             float dx = other.position[0] - this->position[0];
             float dy = other.position[1] - this->position[1];
             float dz = other.position[2] - this->position[2];
-            float distance = std::pow(dx*dx + dy*dy + dz*dz, (1.0f/2.0f));
-            if (other.radius + this->radius > distance){
-                return -0.2f;
+            float distance = std::sqrt(dx*dx + dy*dy + dz*dz);
+            float minDistance = other.radius + this->radius;
+            
+            if (distance < minDistance && distance > 0.001f) { // Avoid division by zero
+                overlap = minDistance - distance;
+                collisionNormal = glm::vec3(dx / distance, dy / distance, dz / distance);
+                return true;
             }
-            return 1.0f;
+            return false;
+        }
+        
+        void ResolveCollision(Object& other) {
+            glm::vec3 collisionNormal;
+            float overlap;
+            
+            if (CheckCollision(other, collisionNormal, overlap)) {
+                // Push objects apart to prevent overlap
+                float pushDistance = overlap * 0.5f; // Split the push between both objects
+                
+                // Move this object away
+                this->position -= collisionNormal * pushDistance;
+                // Move other object away
+                other.position += collisionNormal * pushDistance;
+                
+                // Calculate relative velocity
+                glm::vec3 relativeVel = this->velocity - other.velocity;
+                float velAlongNormal = glm::dot(relativeVel, collisionNormal);
+                
+                // Don't resolve if velocities are separating
+                if (velAlongNormal > 0) return;
+                
+                // Calculate restitution (bounciness) - 0.5 means objects lose half their energy
+                float restitution = 0.5f;
+                
+                // Calculate impulse scalar
+                float impulseScalar = -(1.0f + restitution) * velAlongNormal;
+                impulseScalar /= (1.0f / this->mass + 1.0f / other.mass);
+                
+                // Apply impulse
+                glm::vec3 impulse = collisionNormal * impulseScalar;
+                this->velocity += impulse / this->mass;
+                other.velocity -= impulse / other.mass;
+            }
         }
 
         // Method to update the trail positions
@@ -218,13 +257,13 @@ class Object {
             // Only add a new sphere every few frames
             static int frameCount = 0;
             frameCount++;
-            if (frameCount % 5 == 0) { // Add a new sphere every 5 frames
+            if (frameCount % 10 == 0) { // Add a new sphere every 10 frames (less frequent to avoid overlap)
                 // Create a new trail sphere
                 TrailSphere newSphere;
                 newSphere.position = position;
                 
-                // Create a smaller sphere
-                float trailSphereRadius = radius * 0.3f; // 30% the size of the main object
+                // Create a smaller sphere - make trails smaller so they don't overlap with objects
+                float trailSphereRadius = radius * 0.15f; // 15% the size of the main object (reduced from 30%)
                 std::vector<float> vertices;
                 int stacks = 8;
                 int sectors = 8;
@@ -317,40 +356,48 @@ int main() {
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-    //projection matrix
-    glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 750000.0f);
+    // Get actual framebuffer size for projection matrix (important for Retina displays)
+    int framebufferWidth, framebufferHeight;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    
+    //projection matrix - use actual framebuffer size
+    glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)framebufferWidth / (float)framebufferHeight, 0.1f, 750000.0f);
     GLint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
     cameraPos = glm::vec3(0.0f, 1000.0f,  5000.0f);
 
     
-    // Use much more conservative orbital velocities for stable simulation
-    float sunMass = 1.989e30; // Sun mass in kg
-    float earthDistance = 3844.0f; // Distance from sun in simulation units
-    float moonDistance = 384.4f; // Moon distance from Earth in simulation units
+    // Use realistic masses and orbital velocities
+    float earthDistance = 15000.0f; // Distance from sun in simulation units (increased significantly)
+    float moonDistance = 10000.0f; // Moon distance from Earth in simulation units (much farther to avoid collision)
     
-    // Use extremely conservative velocities for guaranteed stable orbits
-    float earthOrbitalVel = 10.0f; // Very conservative orbital velocity for Earth
-    float moonOrbitalVel = 5.0f; // Very conservative orbital velocity for Moon
+    // Use much higher orbital velocities for fast, visible motion
+    float earthOrbitalVel = 500.0f; // Increased orbital velocity for Earth (5x faster)
+    float moonOrbitalVel = 300.0f; // Increased orbital velocity for Moon (6x faster)
     
     objs = {
-        // Moon orbiting Earth
-        Object(glm::vec3(moonDistance, 0, 0), glm::vec3(0, 0, moonOrbitalVel), 7.34767309*pow(10, 20), 3344),
-        // Sun at center with reduced mass for stable simulation
-        Object(glm::vec3(0, 0, 0), glm::vec3(0, 0, 0), sunMass / 1000.0f, 5515),
-        // Earth orbiting Sun
-        Object(glm::vec3(earthDistance, 0, 0), glm::vec3(0, 0, earthOrbitalVel), 5.97219*pow(10, 22), 5515),
+        // Sun at center - reduced mass for stable simulation (1/1000 of real mass)
+        Object(glm::vec3(0, 0, 0), glm::vec3(0, 0, 0), 1.989*pow(10, 27), 5515), // 1.989 * 10^27 kg (1000x less than real)
+        // Earth orbiting Sun - proportional mass (1/1000 of real mass to match Sun reduction)
+        Object(glm::vec3(earthDistance, 0, 0), glm::vec3(0, 0, earthOrbitalVel), 5.97219*pow(10, 21), 5515), // 5.97219 * 10^21 kg (1000x less than real)
+        // Moon orbiting Earth - proportional mass (1/1000 of real mass to match Sun reduction)
+        Object(glm::vec3(earthDistance + moonDistance, 0, 0), glm::vec3(0, 0, earthOrbitalVel + moonOrbitalVel), 7.35*pow(10, 19), 3344), // 7.35 * 10^19 kg (1000x less than real)
     };
     
-    // Set moon to grey color
-    objs[0].color = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f);
-    // Enable trail for the moon
-    objs[0].hasTrail = true;
-    // Set sun to yellow/orange color
-    objs[1].color = glm::vec4(1.0f, 0.8f, 0.2f, 1.0f);
-    // Set earth to blue color
-    objs[2].color = glm::vec4(0.0f, 0.3f, 0.8f, 1.0f);
+    // Set sun to yellow/orange color (objs[0] is now Sun)
+    objs[0].color = glm::vec4(1.0f, 0.8f, 0.2f, 1.0f);
+    // Cap sun radius to reasonable size (max 1000 units) so it doesn't fill the entire view
+    if (objs[0].radius > 1000.0f) {
+        objs[0].radius = 1000.0f;
+        objs[0].UpdateVertices();
+    }
+    // Set earth to blue color (objs[1] is now Earth)
+    objs[1].color = glm::vec4(0.0f, 0.3f, 0.8f, 1.0f);
     // Enable trail for earth
+    objs[1].hasTrail = true;
+    // Set moon to grey color (objs[2] is now Moon)
+    objs[2].color = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f);
+    // Enable trail for the moon
     objs[2].hasTrail = true;
     
     // Print simulation speed control instructions
@@ -362,6 +409,9 @@ int main() {
     std::cout << "Press 4: Super fast (10.0x)" << std::endl;
     std::cout << "Press 5: Ultra fast (50.0x)" << std::endl;
     std::cout << "Press 6: Ludicrous speed (100.0x)" << std::endl;
+    std::cout << "Press 7: Insane speed (250.0x)" << std::endl;
+    std::cout << "Press 8: Extreme speed (500.0x)" << std::endl;
+    std::cout << "Press 9: Maximum speed (1000.0x)" << std::endl;
     std::cout << "===================================" << std::endl;
     std::cout << "===== CAMERA CONTROLS =====" << std::endl;
     std::cout << "Hold X: 5x camera movement speed" << std::endl;
@@ -370,7 +420,7 @@ int main() {
     std::cout << "Space/Shift: Up/Down" << std::endl;
     std::cout << "===================================" << std::endl;
     
-    std::vector<float> gridVertices = CreateGridVertices(100000.0f, 50, objs);
+    std::vector<float> gridVertices = CreateGridVertices(500000.0f, 50, objs);
     CreateVBOVAO(gridVAO, gridVBO, gridVertices.data(), gridVertices.size());
     std::cout<<"Earth radius: "<<objs[1].radius<<std::endl;
     std::cout<<"Moon radius: "<<objs[0].radius<<std::endl;
@@ -430,7 +480,7 @@ int main() {
                     (3 * objs.back().mass / objs.back().density) / 
                     (4 * 3.14159265359f), 
                     1.0f/3.0f
-                ) / 100000.0f;
+                ) / 1000.0f;
                 
                 // Update vertex data
                 objs.back().UpdateVertices();
@@ -440,7 +490,7 @@ int main() {
         // Draw the grid
         glUseProgram(shaderProgram);
         glUniform4f(objectColorLoc, 1.0f, 1.0f, 1.0f, 0.25f); // White color with 50% transparency for the grid
-        gridVertices = CreateGridVertices(10000.0f, 50, objs);
+        gridVertices = CreateGridVertices(500000.0f, 50, objs);
         glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
         glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_DYNAMIC_DRAW);
         DrawGrid(shaderProgram, gridVAO, gridVertices.size());
@@ -462,8 +512,8 @@ int main() {
                         // Convert distance to meters for proper gravitational calculation
                         float distanceMeters = distance * 1000.0f; // Convert simulation units to meters
                         
-                        // Calculate gravitational force with extremely reduced strength for stable simulation
-                        double Gforce = (G * obj.mass * obj2.mass) / (distanceMeters * distanceMeters * 10000000.0); // Reduce force by 10 million
+                        // Calculate gravitational force with reduced strength for stable simulation
+                        double Gforce = (G * obj.mass * obj2.mass) / (distanceMeters * distanceMeters * 1000.0); // Reduce force by 1000
                         
                         // Calculate acceleration: a = F / m
                         float acc1 = Gforce / obj.mass;
@@ -474,14 +524,20 @@ int main() {
                         if(!pause){
                             obj.accelerate(acc[0], acc[1], acc[2]);
                         }
-
-                        //collision
-                        obj.velocity *= obj.CheckCollision(obj2);
+                    }
+                }
+            }
+            
+            // Resolve collisions after calculating forces (prevents objects passing through)
+            if(!pause) {
+                for(auto& obj2 : objs){
+                    if(&obj2 != &obj && !obj.Initalizing && !obj2.Initalizing){
+                        obj.ResolveCollision(obj2);
                     }
                 }
             }
             if(obj.Initalizing){
-                obj.radius = pow(((3 * obj.mass/obj.density)/(4 * 3.14159265359)), (1.0f/3.0f)) / 100000;
+                obj.radius = pow(((3 * obj.mass/obj.density)/(4 * 3.14159265359)), (1.0f/3.0f)) / 1000;
                 obj.UpdateVertices();
             }
 
@@ -562,7 +618,15 @@ GLFWwindow* StartGLU() {
     }
 
     glEnable(GL_DEPTH_TEST);
-    glViewport(0, 0, 800, 600);
+    
+    // Get actual framebuffer size (important for Retina displays on macOS)
+    int framebufferWidth, framebufferHeight;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    glViewport(0, 0, framebufferWidth, framebufferHeight);
+    
+    // Set framebuffer size callback for window resizing
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // Standard blending for transparency
 
@@ -667,6 +731,18 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 simulationSpeed = 100.0f;
                 std::cout << "Simulation speed: 100.0x (ludicrous speed!)" << std::endl;
                 break;
+            case GLFW_KEY_7: // 250x speed
+                simulationSpeed = 250.0f;
+                std::cout << "Simulation speed: 250.0x (insane speed!)" << std::endl;
+                break;
+            case GLFW_KEY_8: // 500x speed
+                simulationSpeed = 500.0f;
+                std::cout << "Simulation speed: 500.0x (extreme speed!)" << std::endl;
+                break;
+            case GLFW_KEY_9: // 1000x speed
+                simulationSpeed = 1000.0f;
+                std::cout << "Simulation speed: 1000.0x (maximum speed!!)" << std::endl;
+                break;
         }
     }
 
@@ -698,6 +774,10 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     };
     
 };
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+}
+
 void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
 
     float xoffset = xpos - lastX;
@@ -769,9 +849,9 @@ std::vector<float> CreateGridVertices(float size, int divisions, const std::vect
     float step = size / divisions;
     float halfSize = size / 2.0f;
 
-    // x axis
-    for (int yStep = 3; yStep <= 3; ++yStep) {
-        float y = -halfSize*0.3f + yStep * step;
+    // x axis - center grid at y=0
+    for (int yStep = 0; yStep <= 0; ++yStep) {
+        float y = 0.0f;
         for (int zStep = 0; zStep <= divisions; ++zStep) {
             float z = -halfSize + zStep * step;
             for (int xStep = 0; xStep < divisions; ++xStep) {
@@ -797,11 +877,11 @@ std::vector<float> CreateGridVertices(float size, int divisions, const std::vect
     //     }
     // }
 
-    // zaxis
+    // zaxis - center grid at y=0
     for (int xStep = 0; xStep <= divisions; ++xStep) {
         float x = -halfSize + xStep * step;
-        for (int yStep = 3; yStep <= 3; ++yStep) {
-            float y = -halfSize*0.3f + yStep * step;
+        for (int yStep = 0; yStep <= 0; ++yStep) {
+            float y = 0.0f;
             for (int zStep = 0; zStep < divisions; ++zStep) {
                 float zStart = -halfSize + zStep * step;
                 float zEnd = zStart + step;
@@ -849,7 +929,10 @@ std::vector<float> CreateGridVertices(float size, int divisions, const std::vect
             float distance_m = distance * 1000.0f;
             float rs = (2*G*obj.mass)/(c*c);
 
-            float z = 2 * sqrt(rs*(distance_m - rs)) * 100.0f;
+            // Reduce grid warping effect - use smaller multiplier and cap the displacement
+            float z = 2 * sqrt(rs*(distance_m - rs)) * 5.0f; // Reduced from 100.0f to 5.0f
+            // Cap maximum displacement to prevent extreme warping
+            if (z > 500.0f) z = 500.0f;
             totalDisplacement += z;
             
 
@@ -857,7 +940,7 @@ std::vector<float> CreateGridVertices(float size, int divisions, const std::vect
         
         vertexPos += totalDisplacement; 
 
-         vertices[i+1] = vertexPos[1] / 15.0f - 3000.0f;
+         vertices[i+1] = vertexPos[1] / 15.0f;
     }
     
 

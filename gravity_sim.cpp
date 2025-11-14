@@ -7,7 +7,7 @@
 #include <iostream>
 
 const char* vertexShaderSource = R"glsl(
-#version 330 core
+#version 410 core
 layout(location=0) in vec3 aPos;
 uniform mat4 model;
 uniform mat4 view;
@@ -21,7 +21,7 @@ void main() {
     lightIntensity = max(dot(normal, dirToCenter), 0.15);})glsl";
 
 const char* fragmentShaderSource = R"glsl(
-#version 330 core
+#version 410 core
 in float lightIntensity;
 out vec4 FragColor;
 uniform vec4 objectColor;
@@ -40,7 +40,7 @@ void main() {
     }})glsl";
 
 bool running = true;
-bool pause = true;
+bool pause = false;
 glm::vec3 cameraPos   = glm::vec3(0.0f, 0.0f,  1.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
 glm::vec3 cameraUp    = glm::vec3(0.0f, 1.0f,  0.0f);
@@ -59,6 +59,7 @@ GLFWwindow* StartGLU();
 GLuint CreateShaderProgram(const char* vertexSource, const char* fragmentSource);
 void CreateVBOVAO(GLuint& VAO, GLuint& VBO, const float* vertices, size_t vertexCount);
 void UpdateCam(GLuint shaderProgram, glm::vec3 cameraPos);
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -136,9 +137,11 @@ class Object {
         }
         
         void UpdatePos(){
-            this->position[0] += this->velocity[0] / 94;
-            this->position[1] += this->velocity[1] / 94;
-            this->position[2] += this->velocity[2] / 94;
+            // Slow down movement so objects stay visible longer
+            float timeScale = 0.1f; // Reduce movement speed
+            this->position[0] += this->velocity[0] / 94 * timeScale;
+            this->position[1] += this->velocity[1] / 94 * timeScale;
+            this->position[2] += this->velocity[2] / 94 * timeScale;
             this->radius = pow(((3 * this->mass/this->density)/(4 * 3.14159265359)), (1.0f/3.0f)) / sizeRatio;
         }
         void UpdateVertices() {
@@ -178,27 +181,57 @@ GLuint gridVAO, gridVBO;
 
 int main() {
     GLFWwindow* window = StartGLU();
+    if (!window) {
+        std::cerr << "Failed to create window!" << std::endl;
+        return -1;
+    }
+    
     GLuint shaderProgram = CreateShaderProgram(vertexShaderSource, fragmentShaderSource);
+    if (shaderProgram == 0) {
+        std::cerr << "Failed to create shader program!" << std::endl;
+        glfwTerminate();
+        return -1;
+    }
 
+    glUseProgram(shaderProgram);
     GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
     GLint objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
-    glUseProgram(shaderProgram);
+    
+    if (modelLoc == -1 || objectColorLoc == -1) {
+        std::cerr << "ERROR: model or objectColor uniform location not found!" << std::endl;
+        std::cerr << "modelLoc: " << modelLoc << ", objectColorLoc: " << objectColorLoc << std::endl;
+    }
 
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    
+    // Store shader program in window user pointer for framebuffer callback
+    glfwSetWindowUserPointer(window, &shaderProgram);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
-    //projection matrix
-    glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 750000.0f);
+    // Get actual framebuffer size for projection matrix (important for Retina displays)
+    int framebufferWidth, framebufferHeight;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    
+    //projection matrix - use actual framebuffer size
+    glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)framebufferWidth / (float)framebufferHeight, 0.1f, 750000.0f);
     GLint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
-    cameraPos = glm::vec3(0.0f, 1000.0f, 5000.0f);
+    
+    // Set camera to look at the origin where objects are
+    // Start closer to see objects better
+    cameraPos = glm::vec3(0.0f, 2000.0f, 5000.0f);
+    // Point camera towards origin
+    glm::vec3 target = glm::vec3(0.0f, 0.0f, 0.0f);
+    cameraFront = glm::normalize(target - cameraPos);
+    UpdateCam(shaderProgram, cameraPos);
 
     
     objs = {
-        //Object(glm::vec3(3844, 0, 0), glm::vec3(0, 0, 228), 7.34767309*pow(10, 22), 3344),
-        //Object(glm::vec3(0, 0, 0), glm::vec3(0, 0, 0), 1.989 * pow(10, 30), 5515, glm::vec4(1.0f, 0.929f, 0.176f, 1.0f)),
-       //Object(glm::vec3(0, 0, 0), glm::vec3(0, 0, 0), 5.97219*pow(10, 24), 5515, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f)),
+        Object(glm::vec3(3844, 0, 0), glm::vec3(0, 0, 228), 7.34767309*pow(10, 22), 3344),
+        Object(glm::vec3(0, 0, 0), glm::vec3(0, 0, 0), 1.989 * pow(10, 30), 5515, glm::vec4(1.0f, 0.929f, 0.176f, 1.0f)),
+       Object(glm::vec3(0, 0, 0), glm::vec3(0, 0, 0), 5.97219*pow(10, 24), 5515, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f)),
        Object(glm::vec3(-5000, 650, -350), glm::vec3(0, 0, 1500), 5.97219*pow(10, 22), 5515, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f)),
        Object(glm::vec3(5000, 650, -350), glm::vec3(0, 0, -1500), 5.97219*pow(10, 22), 5515, glm::vec4(0.0f, 1.0f, 1.0f, 1.0f)),
        Object(glm::vec3(0, 0, -350), glm::vec3(0, 0, 0), 1.989 * pow(10, 25), 5515, glm::vec4(1.0f, 0.929f, 0.176f, 1.0f), true),
@@ -212,8 +245,44 @@ int main() {
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // Set clear color to black
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        
+        // Check for OpenGL errors after clear
+        GLenum err = glGetError();
+        if (err != GL_NO_ERROR) {
+            std::cerr << "OpenGL error after clear: " << err << std::endl;
+        }
 
+        // Process input - check keys directly instead of relying on callback
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            cameraPos += 10000.0f * deltaTime * cameraFront;
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            cameraPos -= 10000.0f * deltaTime * cameraFront;
+        }
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            cameraPos -= 10000.0f * deltaTime * glm::normalize(glm::cross(cameraFront, cameraUp));
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            cameraPos += 10000.0f * deltaTime * glm::normalize(glm::cross(cameraFront, cameraUp));
+        }
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+            cameraPos += 10000.0f * deltaTime * cameraUp;
+        }
+        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+            cameraPos -= 10000.0f * deltaTime * cameraUp;
+        }
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+            running = false;
+        }
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS) {
+            pause = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_RELEASE) {
+            pause = false;
+        }
+        
         glfwSetKeyCallback(window, keyCallback);
         glfwSetMouseButtonCallback(window, mouseButtonCallback);
         UpdateCam(shaderProgram, cameraPos);
@@ -236,9 +305,14 @@ int main() {
 
         // Draw the grid
         glUseProgram(shaderProgram);
+        GLint isGridLoc = glGetUniformLocation(shaderProgram, "isGrid");
+        GLint glowLoc = glGetUniformLocation(shaderProgram, "GLOW");
+        if (isGridLoc == -1 || glowLoc == -1) {
+            std::cerr << "ERROR: isGrid or GLOW uniform location not found!" << std::endl;
+        }
         glUniform4f(objectColorLoc, 1.0f, 1.0f, 1.0f, 0.25f);
-        glUniform1i(glGetUniformLocation(shaderProgram, "isGrid"), 1);
-        glUniform1i(glGetUniformLocation(shaderProgram, "GLOW"), 0);
+        glUniform1i(isGridLoc, 1);
+        glUniform1i(glowLoc, 0);
         gridVertices = UpdateGridVertices(gridVertices, objs);
         glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
         glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_DYNAMIC_DRAW);
@@ -269,12 +343,12 @@ int main() {
 
                         //collision
                         obj.velocity *= obj.CheckCollision(obj2);
-                        std::cout<<"radius: "<<obj.radius<<std::endl;
+                        // std::cout<<"radius: "<<obj.radius<<std::endl; // Commented out to reduce console spam
                     }
                 }
             }
             if(obj.Initalizing){
-                obj.radius = pow(((3 * obj.mass/obj.density)/(4 * 3.14159265359)), (1.0f/3.0f)) / 1000000;
+                obj.radius = pow(((3 * obj.mass/obj.density)/(4 * 3.14159265359)), (1.0f/3.0f)) / sizeRatio;
                 obj.UpdateVertices();
             }
 
@@ -286,15 +360,25 @@ int main() {
             glm::mat4 model = glm::mat4(1.0f);
             model = glm::translate(model, obj.position); // apply position
             glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
-            glUniform1i(glGetUniformLocation(shaderProgram, "isGrid"), 0);
+            GLint isGridLoc = glGetUniformLocation(shaderProgram, "isGrid");
+            GLint glowLoc = glGetUniformLocation(shaderProgram, "GLOW");
+            glUniform1i(isGridLoc, 0);
             if(obj.glow){
-                glUniform1i(glGetUniformLocation(shaderProgram, "GLOW"), 1);
+                glUniform1i(glowLoc, 1);
             } else {
-                glUniform1i(glGetUniformLocation(shaderProgram, "GLOW"), 0);
+                glUniform1i(glowLoc, 0);
             }
             
             glBindVertexArray(obj.VAO);
-            glDrawArrays(GL_TRIANGLES, 0, obj.vertexCount / 3);
+            if (obj.vertexCount == 0) {
+                std::cerr << "WARNING: Object has 0 vertex count!" << std::endl;
+            } else {
+                glDrawArrays(GL_TRIANGLES, 0, obj.vertexCount / 3);
+                GLenum err = glGetError();
+                if (err != GL_NO_ERROR) {
+                    std::cerr << "OpenGL error after draw: " << err << std::endl;
+                }
+            }
         }
         
         glfwSwapBuffers(window);
@@ -321,6 +405,13 @@ GLFWwindow* StartGLU() {
         std::cout << "Failed to initialize GLFW, panic" << std::endl;
         return nullptr;
     }
+    
+    // Request OpenGL 4.1 core profile (macOS compatible)
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);  // Required on macOS
+    
     GLFWwindow* window = glfwCreateWindow(800, 600, "3D_TEST", NULL, NULL);
     if (!window) {
         std::cerr << "Failed to create GLFW window." << std::endl;
@@ -337,7 +428,12 @@ GLFWwindow* StartGLU() {
     }
 
     glEnable(GL_DEPTH_TEST);
-    glViewport(0, 0, 800, 600);
+    
+    // Get actual framebuffer size (important for Retina displays on macOS)
+    int framebufferWidth, framebufferHeight;
+    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+    glViewport(0, 0, framebufferWidth, framebufferHeight);
+    
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -381,10 +477,23 @@ GLuint CreateShaderProgram(const char* vertexSource, const char* fragmentSource)
         char infoLog[512];
         glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
         std::cerr << "Shader program linking failed: " << infoLog << std::endl;
+        return 0;
     }
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+    
+    // Verify shader program is valid
+    if (shaderProgram == 0) {
+        std::cerr << "ERROR: Shader program is invalid!" << std::endl;
+        return 0;
+    }
+    
+    // Check for OpenGL errors
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        std::cerr << "OpenGL error after shader creation: " << err << std::endl;
+    }
 
     return shaderProgram;
 }
@@ -403,9 +512,20 @@ void CreateVBOVAO(GLuint& VAO, GLuint& VBO, const float* vertices, size_t vertex
 
 void UpdateCam(GLuint shaderProgram, glm::vec3 cameraPos) {
     glUseProgram(shaderProgram);
-    glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+    // Use cameraFront for proper camera rotation, but ensure we can see objects
+    glm::vec3 target = cameraPos + cameraFront;
+    glm::mat4 view = glm::lookAt(cameraPos, target, cameraUp);
     GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
+    if (viewLoc == -1) {
+        std::cerr << "ERROR: view uniform location not found!" << std::endl;
+    }
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    
+    // Check for OpenGL errors
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        std::cerr << "OpenGL error in UpdateCam: " << err << std::endl;
+    }
 }
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -476,6 +596,20 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
     };
     
 };
+
+// Framebuffer size callback for window resizing and Retina display support
+void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+    glViewport(0, 0, width, height);
+    // Update projection matrix
+    GLuint* shaderProgramPtr = static_cast<GLuint*>(glfwGetWindowUserPointer(window));
+    if (shaderProgramPtr != nullptr && *shaderProgramPtr != 0) {
+        glUseProgram(*shaderProgramPtr);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 0.1f, 750000.0f);
+        GLint projectionLoc = glGetUniformLocation(*shaderProgramPtr, "projection");
+        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+    }
+}
+
 void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
 
     float xoffset = xpos - lastX;
@@ -547,9 +681,9 @@ std::vector<float> CreateGridVertices(float size, int divisions, const std::vect
     float step = size / divisions;
     float halfSize = size / 2.0f;
 
-    // x axis
-    for (int yStep = 3; yStep <= 3; ++yStep) {
-        float y = -halfSize*0.3f + yStep * step;
+    // x axis - center grid at y=0
+    for (int yStep = 0; yStep <= 0; ++yStep) {
+        float y = 0.0f; // Center at y=0 where objects are
         for (int zStep = 0; zStep <= divisions; ++zStep) {
             float z = -halfSize + zStep * step;
             for (int xStep = 0; xStep < divisions; ++xStep) {
@@ -560,11 +694,11 @@ std::vector<float> CreateGridVertices(float size, int divisions, const std::vect
             }
         }
     }
-    // zaxis
+    // zaxis - center grid at y=0
     for (int xStep = 0; xStep <= divisions; ++xStep) {
         float x = -halfSize + xStep * step;
-        for (int yStep = 3; yStep <= 3; ++yStep) {
-            float y = -halfSize*0.3f + yStep * step;
+        for (int yStep = 0; yStep <= 0; ++yStep) {
+            float y = 0.0f; // Center at y=0 where objects are
             for (int zStep = 0; zStep < divisions; ++zStep) {
                 float zStart = -halfSize + zStep * step;
                 float zEnd = zStart + step;
@@ -579,43 +713,35 @@ std::vector<float> CreateGridVertices(float size, int divisions, const std::vect
     return vertices;
 }
 std::vector<float> UpdateGridVertices(std::vector<float> vertices, const std::vector<Object>& objs){
-    
-    // centre of mass calc
-    float totalMass = 0.0f;
-    float comY = 0.0f;
-    for (const auto& obj : objs) {
-        if (obj.Initalizing) continue;
-        comY += obj.mass * obj.position.y;
-        totalMass += obj.mass;
-    }
-    if (totalMass > 0) comY /= totalMass;
-    
-    float originalMaxY = -std::numeric_limits<float>::infinity();
+    // Store original Y positions
+    std::vector<float> originalY;
     for (int i = 0; i < vertices.size(); i += 3) {
-        originalMaxY = std::max(originalMaxY, vertices[i+1]);
+        originalY.push_back(vertices[i+1]);
     }
-
-    float verticalShift = comY - originalMaxY;
-    std::cout<<"vertical shift: "<<verticalShift<<" |         comY: "<<comY<<"|            originalmaxy: "<<originalMaxY<<std::endl;
-
-
+    
     for (int i = 0; i < vertices.size(); i += 3) {
-
-        // mass bending space
-        glm::vec3 vertexPos(vertices[i], vertices[i+1], vertices[i+2]);
-        glm::vec3 totalDisplacement(0.0f);
+        // mass bending space - create subtle warping effect
+        glm::vec3 vertexPos(vertices[i], originalY[i/3], vertices[i+2]);
+        float totalWarp = 0.0f;
+        
         for (const auto& obj : objs) {
-            //f (obj.Initalizing) continue;
+            if (obj.Initalizing) continue;
 
             glm::vec3 toObject = obj.GetPos() - vertexPos;
             float distance = glm::length(toObject);
+            if (distance < 0.001f) continue; // Avoid division by zero
+            
             float distance_m = distance * 1000.0f;
             float rs = (2*G*obj.mass)/(c*c);
-
-            float dz = 2 * sqrt(rs * (distance_m - rs));
-            totalDisplacement.y += dz * 2.0f;
+            
+            if (distance_m > rs) {
+                float dz = 2 * sqrt(rs * (distance_m - rs));
+                // Very subtle warping - just enough to see the effect
+                totalWarp += dz * 0.001f; // Much smaller multiplier
+            }
         }
-        vertices[i+1] = totalDisplacement.y + -abs(verticalShift);
+        // Apply subtle warping to original Y position
+        vertices[i+1] = originalY[i/3] + totalWarp;
     }
 
     return vertices;
