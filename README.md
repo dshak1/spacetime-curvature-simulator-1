@@ -1,4 +1,4 @@
-# OpenGL Gravity Simulator for macOS
+# OpenGL Gravity Simulator
 
 This is a 3D gravity simulation using OpenGL, GLFW, and GLM, adapted for macOS.
 
