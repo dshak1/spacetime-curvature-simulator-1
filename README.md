@@ -9,7 +9,6 @@ This is a 3D gravity simulation using OpenGL, GLFW, and GLM, adapted for macOS.
 ![GLFW](https://img.shields.io/badge/GLFW-000000?style=for-the-badge&logo=glfw&logoColor=white)
 ![GLM](https://img.shields.io/badge/GLM-000000?style=for-the-badge&logo=glm&logoColor=white)
 ![Make](https://img.shields.io/badge/Make-000000?style=for-the-badge&logo=gnu&logoColor=white)
-![macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)
 
 ## Features
 
