@@ -2,6 +2,15 @@
 
 This is a 3D gravity simulation using OpenGL, GLFW, and GLM, adapted for macOS.
 
+## Built With
+
+![C++](https://img.shields.io/badge/C%2B%2B-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white)
+![OpenGL](https://img.shields.io/badge/OpenGL-000000?style=for-the-badge&logo=opengl&logoColor=white)
+![GLFW](https://img.shields.io/badge/GLFW-000000?style=for-the-badge&logo=glfw&logoColor=white)
+![GLM](https://img.shields.io/badge/GLM-000000?style=for-the-badge&logo=glm&logoColor=white)
+![Make](https://img.shields.io/badge/Make-000000?style=for-the-badge&logo=gnu&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white)
+
 ## Features
 
 - **gravity_sim**: Main gravity simulator with full physics simulation
